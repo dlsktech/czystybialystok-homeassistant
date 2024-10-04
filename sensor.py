@@ -1,90 +1,65 @@
-import logging
 import requests
 import json
-from datetime import timedelta
-import voluptuous as vol
-
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import TEMP_CELSIUS, PERCENTAGE, PRESSURE_HPA
+import logging
 from homeassistant.helpers.entity import Entity
-from homeassistant.util import Throttle
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from datetime import timedelta
 
 _LOGGER = logging.getLogger(__name__)
 
-# Limitujemy odświeżanie danych do co 5 minut
-MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=5)
-
-# URL API
 API_URL = "https://dev.omnihub.pl/api/infotechwidget/?format=json"
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Ustawienie platformy czujników."""
-    sensors = []
-    
-    # Pobranie danych z API
-    data = InfotechSensorData()
-    data.update()
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    update_interval = timedelta(minutes=5)
+    coordinator = OmnihubDataUpdateCoordinator(hass, update_interval)
 
-    # Przypisanie czujników dla każdego urządzenia
-    for device in data.devices:
-        for var in device['vars']:
-            sensors.append(InfotechSensor(device['device'], var['var_name'], var['var_value'], var['var_label']))
+    await coordinator.async_refresh()
+    if not coordinator.last_update_success:
+        raise UpdateFailed("Failed to update data from Omnihub API.")
 
-    add_entities(sensors, True)
+    entities = []
+    for device in coordinator.data:
+        for variable in device['vars']:
+            entities.append(OmnihubSensor(coordinator, device['device'], variable))
 
-class InfotechSensor(Entity):
-    """Reprezentacja pojedynczego sensora."""
+    async_add_entities(entities, update_before_add=True)
 
-    def __init__(self, device_name, var_name, var_value, var_label):
-        """Inicjalizacja czujnika."""
-        self._device_name = device_name
-        self._var_name = var_name
-        self._state = var_value
-        self._unit = var_label
-        self._name = f"{device_name} {var_name}"
+class OmnihubDataUpdateCoordinator(DataUpdateCoordinator):
+    def __init__(self, hass, update_interval):
+        super().__init__(hass, _LOGGER, name="Omnihub API", update_interval=update_interval)
 
-    @property
-    def name(self):
-        """Zwraca nazwę sensora."""
-        return self._name
+    async def _async_update_data(self):
+        try:
+            response = requests.get(API_URL)
+            response.raise_for_status()
+            data = response.json()
+            return data
+        except requests.RequestException as err:
+            raise UpdateFailed(f"Error communicating with API: {err}")
+
+class OmnihubSensor(Entity):
+    def __init__(self, coordinator, device_name, variable):
+        self.coordinator = coordinator
+        self.device_name = device_name
+        self.variable = variable
+        self._attr_name = f"{device_name} {variable['var_name']}"
 
     @property
     def state(self):
-        """Zwraca aktualny stan sensora."""
-        return self._state
+        return self.variable['var_value']
 
     @property
     def unit_of_measurement(self):
-        """Zwraca jednostkę miary."""
-        return self._unit
+        return self.variable['var_label']
 
-    def update(self):
-        """Aktualizuje stan sensora."""
-        data = InfotechSensorData()
-        data.update()
-
-        for device in data.devices:
-            if device['device'] == self._device_name:
+    async def async_update(self):
+        await self.coordinator.async_request_refresh()
+        for device in self.coordinator.data:
+            if device['device'] == self.device_name:
                 for var in device['vars']:
-                    if var['var_name'] == self._var_name:
-                        self._state = var['var_value']
+                    if var['var_name'] == self.variable['var_name']:
+                        self.variable = var
+                        break
 
-
-class InfotechSensorData:
-    """Pobieranie danych z API."""
-
-    def __init__(self):
-        self.devices = []
-
-    @Throttle(MIN_TIME_BETWEEN_UPDATES)
-    def update(self):
-        """Aktualizacja danych z API."""
-        try:
-            response = requests.get(API_URL)
-            if response.status_code == 200:
-                self.devices = response.json()
-            else:
-                _LOGGER.error("Błąd podczas pobierania danych z API: %s", response.status_code)
-        except requests.exceptions.RequestException as error:
-            _LOGGER.error("Błąd połączenia z API: %s", error)
+    async def async_added_to_hass(self):
+        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))

@@ -1,10 +1,11 @@
 {
-    "domain": "infotech_sensors",
-    "name": "Infotech Sensors",
-    "version": "1.0",
-    "documentation": "https://czystybialystok.pl/",
+    "domain": "czystybialystok",
+    "name": "CzytsyBialystok.pl",
+    "version": "1.0.0",
+    "documentation": "czystybialystok.pl",
+    "requirements": [],
     "dependencies": [],
     "codeowners": ["@dlsktech"],
-    "requirements": []
+    "iot_class": "cloud_polling",
+    "config_flow": false
   }
-  
