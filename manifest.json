@@ -1,0 +1,10 @@
+{
+    "domain": "infotech_sensors",
+    "name": "Infotech Sensors",
+    "version": "1.0",
+    "documentation": "https://czystybialystok.pl/",
+    "dependencies": [],
+    "codeowners": ["@dlsktech"],
+    "requirements": []
+  }
+  
